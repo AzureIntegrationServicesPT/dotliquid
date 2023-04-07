@@ -1,9 +1,11 @@
 using System;
-using System.Globalization;
-using System.Threading;
-using System.Linq;
-using NUnit.Framework;
 using System.Collections.Generic;
+using System.Dynamic;
+using System.Globalization;
+using System.Linq;
+using System.Threading;
+using DotLiquid.NamingConventions;
+using NUnit.Framework;
 
 namespace DotLiquid.Tests
 {
@@ -13,6 +15,7 @@ namespace DotLiquid.Tests
         private Context _contextV20;
         private Context _contextV21;
         private Context _contextV22;
+        private Context _contextV22a;
 
         [OneTimeSetUp]
         public void SetUp()
@@ -28,6 +31,10 @@ namespace DotLiquid.Tests
             _contextV22 = new Context(CultureInfo.InvariantCulture)
             {
                 SyntaxCompatibilityLevel = SyntaxCompatibility.DotLiquid22
+            };
+            _contextV22a = new Context(CultureInfo.InvariantCulture)
+            {
+                SyntaxCompatibilityLevel = SyntaxCompatibility.DotLiquid22a
             };
         }
 
@@ -184,17 +191,107 @@ namespace DotLiquid.Tests
         }
 
         [Test]
-        public void TestSlice()
+        public void TestSlice_V22()
         {
-            Assert.AreEqual(null, StandardFilters.Slice(null, 1));
-            Assert.AreEqual(null, StandardFilters.Slice("", 10));
-            Assert.AreEqual("abc", StandardFilters.Slice("abcdefg", 0, 3));
-            Assert.AreEqual("bcd", StandardFilters.Slice("abcdefg", 1, 3));
-            Assert.AreEqual("efg", StandardFilters.Slice("abcdefg", -3, 3));
-            Assert.AreEqual("efg", StandardFilters.Slice("abcdefg", -3, 30));
-            Assert.AreEqual("efg", StandardFilters.Slice("abcdefg", 4, 30));
-            Assert.AreEqual("a", StandardFilters.Slice("abc", -4, 2));
-            Assert.AreEqual("", StandardFilters.Slice("abcdefg", -10, 1));
+            Context context = _contextV22;
+
+            // Verify backwards compatibility for pre-22a syntax (DotLiquid returns null for null input or empty slice)
+            Assert.AreEqual(null, StandardFilters.Slice(context, null, 1)); // DotLiquid test case
+            Assert.AreEqual(null, StandardFilters.Slice(context, "", 10)); // DotLiquid test case
+
+            Assert.AreEqual(null, StandardFilters.Slice(context, null, 0)); // Liquid test case
+            Assert.AreEqual(null, StandardFilters.Slice(context, "foobar", 100, 10)); // Liquid test case
+
+            // Verify DotLiquid is consistent with Liquid for everything else
+            TestSliceString(context);
+            TestSliceArrays(context);
+        }
+
+        [Test]
+        public void TestSlice_V22a()
+        {
+            Context context = _contextV22a;
+
+            // Verify Liquid compliance from V22a syntax:
+            Assert.AreEqual("", StandardFilters.Slice(context, null, 1)); // DotLiquid test case
+            Assert.AreEqual("", StandardFilters.Slice(context, "", 10)); // DotLiquid test case
+
+            Assert.AreEqual("", StandardFilters.Slice(context, null, 0)); // Liquid test case
+            Assert.AreEqual("", StandardFilters.Slice(context, "foobar", 100, 10)); // Liquid test case
+
+            // Verify DotLiquid is consistent with Liquid for everything else
+            TestSliceString(context);
+            TestSliceArrays(context);
+        }
+
+        private void TestSliceString(Context context)
+        {
+            Assert.AreEqual("abc", StandardFilters.Slice(context, "abcdefg", 0, 3));
+            Assert.AreEqual("bcd", StandardFilters.Slice(context, "abcdefg", 1, 3));
+            Assert.AreEqual("efg", StandardFilters.Slice(context, "abcdefg", -3, 3));
+            Assert.AreEqual("efg", StandardFilters.Slice(context, "abcdefg", -3, 30));
+            Assert.AreEqual("efg", StandardFilters.Slice(context, "abcdefg", 4, 30));
+            Assert.AreEqual("a", StandardFilters.Slice(context, "abc", -4, 2));
+            Assert.AreEqual("", StandardFilters.Slice(context, "abcdefg", -10, 1));
+
+            // Test replicated from the Ruby library (https://github.com/Shopify/liquid/blob/master/test/integration/standard_filter_test.rb)
+            Assert.AreEqual("oob", StandardFilters.Slice(context, "foobar", 1, 3));
+            Assert.AreEqual("oobar", StandardFilters.Slice(context, "foobar", 1, 1000));
+            Assert.AreEqual("", StandardFilters.Slice(context, "foobar", 1, 0));
+            Assert.AreEqual("o", StandardFilters.Slice(context, "foobar", 1, 1));
+            Assert.AreEqual("bar", StandardFilters.Slice(context, "foobar", 3, 3));
+            Assert.AreEqual("ar", StandardFilters.Slice(context, "foobar", -2, 2));
+            Assert.AreEqual("ar", StandardFilters.Slice(context, "foobar", -2, 1000));
+            Assert.AreEqual("r", StandardFilters.Slice(context, "foobar", -1));
+            Assert.AreEqual("", StandardFilters.Slice(context, "foobar", -100, 10));
+            Assert.AreEqual("oob", StandardFilters.Slice(context, "foobar", 1, 3));
+        }
+
+        private void TestSliceArrays(Context context)
+        {
+            // Test replicated from the Ruby library
+            var testArray = new[] { "f", "o", "o", "b", "a", "r" };
+            CollectionAssert.AreEqual(ToStringArray("oob"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, 1, 3));
+            CollectionAssert.AreEqual(ToStringArray("oobar"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, 1, 1000));
+            CollectionAssert.AreEqual(ToStringArray(""), (IEnumerable<object>)StandardFilters.Slice(context, testArray, 1, 0));
+            CollectionAssert.AreEqual(ToStringArray("o"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, 1, 1));
+            CollectionAssert.AreEqual(ToStringArray("bar"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, 3, 3));
+            CollectionAssert.AreEqual(ToStringArray("ar"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, -2, 2));
+            CollectionAssert.AreEqual(ToStringArray("ar"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, -2, 1000));
+            CollectionAssert.AreEqual(ToStringArray("r"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, -1));
+            CollectionAssert.AreEqual(ToStringArray(""), (IEnumerable<object>)StandardFilters.Slice(context, testArray, 100, 10));
+            CollectionAssert.AreEqual(ToStringArray(""), (IEnumerable<object>)StandardFilters.Slice(context, testArray, -100, 10));
+
+            // additional tests
+            CollectionAssert.AreEqual(ToStringArray("fo"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, -6, 2));
+            CollectionAssert.AreEqual(ToStringArray("fo"), (IEnumerable<object>)StandardFilters.Slice(context, testArray, -8, 4));
+
+            // Non-string arrays tests
+            CollectionAssert.AreEqual(new[] { 2, 3, 4 }, (IEnumerable<object>)StandardFilters.Slice(context, new[] { 1, 2, 3, 4, 5 }, 1, 3));
+            CollectionAssert.AreEqual(new[] { 'b', 'c', 'd' }, (IEnumerable<object>)StandardFilters.Slice(context, new[] { 'a', 'b', 'c', 'd', 'e' }, -4, 3));
+        }
+
+        /// <summary>
+        /// Convert a string into a string[] where each character is mapped into an array element.
+        /// </summary>
+        private static string[] ToStringArray(string input)
+        {
+            return input.ToCharArray().Select(character => character.ToString()).ToArray();
+        }
+
+        [Test]
+        public void TestSliceShopifySamples()
+        {
+            // Test from Liquid specification at https://shopify.github.io/liquid/filters/slice/
+            Helper.AssertTemplateResult(
+                expected: @"
+PaulGeorge",
+                template: @"{% assign beatles = 'John, Paul, George, Ringo' | split: ', ' %}
+{{ beatles | slice: 1, 2 }}");
+
+            Helper.AssertTemplateResult(
+                expected: "ui",
+                template: "{{ 'Liquid' | slice: -3, 2 }}");
         }
 
         [Test]
@@ -253,7 +350,7 @@ namespace DotLiquid.Tests
             var hashes = new List<Hash>();
             for (var i = 0; i < strings.Length; i++)
                 hashes.Add(CreateHash(ints[i], strings[i]));
-            CollectionAssert.AreEqual(new[] { hashes[3], hashes[2], hashes[1], hashes[0]  },
+            CollectionAssert.AreEqual(new[] { hashes[3], hashes[2], hashes[1], hashes[0] },
                 StandardFilters.Sort(_contextV22, hashes, "content"));
             CollectionAssert.AreEqual(new[] { hashes[3], hashes[2], hashes[1], hashes[0] },
                 StandardFilters.Sort(_contextV22, hashes, "sortby"));
@@ -319,6 +416,44 @@ namespace DotLiquid.Tests
             Assert.AreEqual(hash2["content"], result[2]["content"]);
         }
 
+        [Test]
+        public void TestSort_Indexable()
+        {
+            var packages = new [] {
+                new Package(numberOfPiecesPerPackage: 2, test: "p1"),
+                new Package(numberOfPiecesPerPackage: 1, test: "p2"),
+                new Package(numberOfPiecesPerPackage: 3, test: "p3"),
+            };
+            var expectedPackages= packages.OrderBy(p => p["numberOfPiecesPerPackage"]).ToArray();
+
+            Helper.LockTemplateStaticVars(new RubyNamingConvention(), () =>
+            {
+                CollectionAssert.AreEqual(
+                    expected: expectedPackages,
+                    actual: StandardFilters.Sort(_contextV20, packages, "numberOfPiecesPerPackage"));
+            });
+        }
+
+        [Test]
+        public void TestSort_ExpandoObject()
+        {
+            dynamic package1 = new ExpandoObject();
+            package1.numberOfPiecesPerPackage = 2;
+            package1.test = "p1";
+            dynamic package2 = new ExpandoObject();
+            package2.numberOfPiecesPerPackage = 1;
+            package2.test = "p2";
+            dynamic package3 = new ExpandoObject();
+            package3.numberOfPiecesPerPackage = 3;
+            package3.test = "p3";
+            var packages = new List<ExpandoObject> { package1, package2, package3 };
+            var expectedPackages = new List<ExpandoObject> { package2, package1, package3 };
+
+            Assert.AreEqual(
+                expected: expectedPackages,
+                actual: StandardFilters.Sort(_contextV20, packages, property: "numberOfPiecesPerPackage"));
+        }
+
         private static Hash CreateHash(int sortby, string content) =>
             new Hash
             {
@@ -343,8 +478,6 @@ namespace DotLiquid.Tests
                         Hash.FromAnonymousObject(new { foo = Hash.FromAnonymousObject(new { bar = "c" }) })
                     }
                     }));
-            CollectionAssert.AreEqual(new[] { new { a = 1 }, new { a = 2 }, new { a = 3 }, new { a = 4 } },
-                StandardFilters.Map(new[] { new { a = 1 }, new { a = 2 }, new { a = 3 }, new { a = 4 } }, "b"));
 
             Assert.AreEqual(null, StandardFilters.Map(null, "a"));
             CollectionAssert.AreEqual(new object[] { null }, StandardFilters.Map(new object[] { null }, "a"));
@@ -359,7 +492,7 @@ namespace DotLiquid.Tests
             });
 
             Helper.AssertTemplateResult("abc", "{{ ary | map:'prop_allowed' | join:'' }}", hash);
-            Helper.AssertTemplateResult("", "{{ ary | map:'prop_disallowed' | join:'' }}", hash);
+            Helper.AssertTemplateResult("", "{{ ary | map:'no_prop' | join:'' }}", hash);
 
             hash = Hash.FromAnonymousObject(new
             {
@@ -372,6 +505,47 @@ namespace DotLiquid.Tests
 
             Helper.AssertTemplateResult("abc", "{{ ary | map:'prop' | join:'' }}", hash);
             Helper.AssertTemplateResult("", "{{ ary | map:'no_prop' | join:'' }}", hash);
+        }
+
+        /// <summary>
+        /// Test case for [Issue #520](https://github.com/dotliquid/dotliquid/issues/520)
+        /// </summary>
+        [Test]
+        public void TestMapInvalidProperty()
+        {
+            var nullObjectArray = new object[] { null };
+            // Anonymous Type
+            CollectionAssert.AreEqual(nullObjectArray,
+                StandardFilters.Map(new[] { new { a = 1 } }, "no_prop"));
+
+            // Drop
+            CollectionAssert.AreEqual(nullObjectArray,
+                StandardFilters.Map(new[] { new Helper.DataObjectDrop { Prop = "a" }}, "no_prop"));
+
+            // Dictionary
+            CollectionAssert.AreEqual(nullObjectArray,
+                StandardFilters.Map(Hash.FromDictionary(new Dictionary<string, object>() { { "a", 1 } }), "no_prop"));
+
+            // Expando Array
+            var expandoJson = "[{\"a\": 1}]";
+            var expandoObj = Newtonsoft.Json.JsonConvert.DeserializeObject<ExpandoObject[]>(expandoJson);
+            CollectionAssert.AreEqual(nullObjectArray,
+                StandardFilters.Map(expandoObj, "no_prop"));
+        }
+
+        /// <summary>
+        /// Test case for [Issue #275](https://github.com/dotliquid/dotliquid/issues/275)
+        /// </summary>
+        [Test]
+        public void TestMapDisallowedProperty() {
+            var hash = Hash.FromAnonymousObject(new
+            {
+                safe = new[] { new Helper.DataObjectRegistered { PropAllowed = "a", PropDisallowed = "x" }},
+                attr = new[] { new Helper.DataObject { PropAllowed = "a", PropDisallowed = "x" } }
+            });
+
+            Helper.AssertTemplateResult("", "{{ safe | map:'prop_disallowed' | join:'' }}", hash);
+            Helper.AssertTemplateResult("", "{{ attr | map:'prop_disallowed' | join:'' }}", hash);
         }
 
         /// <summary>
@@ -541,6 +715,28 @@ namespace DotLiquid.Tests
         }
 
         [Test]
+        public void TestMapExpandoObject()
+        {
+            dynamic product1 = new ExpandoObject();
+            product1.title = "Vacuum";
+            product1.type = "cleaning";
+            dynamic product2 = new ExpandoObject();
+            product2.title = "Spatula";
+            product2.type = "kitchen";
+            dynamic product3 = new ExpandoObject();
+            product3.title = "Television";
+            product3.type = "lounge";
+            dynamic product4 = new ExpandoObject();
+            product4.title = "Garlic press";
+            product4.type = "kitchen";
+            var products = new List<ExpandoObject> { product1, product2, product3, product4 };
+
+            Assert.AreEqual(
+                expected: new List<string>{"Vacuum", "Spatula", "Television", "Garlic press"},
+                actual: StandardFilters.Map(products, "title"));
+        }
+
+        [Test]
         public void TestMapJoin()
         {
             var hash = Hash.FromAnonymousObject(new
@@ -577,59 +773,111 @@ namespace DotLiquid.Tests
         [TestCase("6.8458", "$6.85")]
         public void TestAmericanCurrencyFromString(string input, string expected)
         {
-#if CORE
-            CultureInfo.DefaultThreadCurrentCulture = new CultureInfo("en-US");
-#else
-            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
-#endif
-            Assert.AreEqual(expected, StandardFilters.Currency(input));
+            // Set the thread culture and test for backward compatibility
+            using (CultureHelper.SetCulture("en-US"))
+            {
+                Helper.AssertTemplateResult(
+                    expected: expected,
+                    template: "{{ input | currency }}",
+                    localVariables: Hash.FromAnonymousObject(new { input = input }));
+            }
+
+            _contextV20.CurrentCulture = new CultureInfo("en-US"); // _contextV20 is initialized with InvariantCulture, these tests require en-US
+            Assert.AreEqual(expected, StandardFilters.Currency(context: _contextV20, input: input));
         }
 
-        [TestCase("6.72", "6,72 €")]
-        [TestCase("6000", "6.000,00 €")]
-        [TestCase("6000000", "6.000.000,00 €")]
-        [TestCase("6000.4", "6.000,40 €")]
-        [TestCase("6000000.4", "6.000.000,40 €")]
-        [TestCase("6.8458", "6,85 €")]
-        public void TestEuroCurrencyFromString(string input, string expected)
+        [TestCase("6.72", "6,72 €", "de-DE")]
+        [TestCase("6000", "6.000,00 €", "de-DE")]
+        [TestCase("6000000", "6.000.000,00 €", "de-DE")]
+        [TestCase("6000.4", "6.000,40 €", "de-DE")]
+        [TestCase("6000000.4", "6.000.000,40 €", "de-DE")]
+        [TestCase("6.8458", "6,85 €", "de-DE")]
+        [TestCase(6000001d, "6.000.001,00 €", "de-DE")]
+        [TestCase("6000000.00", "6 000 000,00 €", "fr-FR")]
+        [TestCase("99.999", "100,00 €", "es")]
+        [TestCase("99.999", "100,00 €", "pt-PT")]
+        [TestCase(7000, "¤7,000.00", "")] // "" = InvariantCulture
+        [TestCase(7000, "¤7,000.00", " ")] // "" = InvariantCulture
+        [TestCase(int.MaxValue, "2 147 483 647,00 €", "fr-FR")]
+        [TestCase(long.MaxValue, "9 223 372 036 854 775 807,00 €", "fr")]
+        public void TestEuroCurrencyFromString(object input, string expected, string languageTag)
         {
-#if CORE
-            CultureInfo.DefaultThreadCurrentCulture = new CultureInfo("en-US");
-#else
-            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
-#endif
-            Assert.AreEqual(expected, StandardFilters.Currency(input, "de-DE"));
+            // Set the thread culture and test for backward compatibility
+            using (CultureHelper.SetCulture("en-US"))
+            {
+                Helper.AssertTemplateResult(
+                    expected: expected,
+                    template: "{{ input | currency: languageTag }}",
+                    localVariables: Hash.FromAnonymousObject(new { input = input, languageTag = languageTag }));
+            }
+
+            _contextV20.CurrentCulture = new CultureInfo("en-US"); // _contextV20 is initialized with InvariantCulture, these tests require en-US
+            Assert.AreEqual(expected, StandardFilters.Currency(context: _contextV20, input: input, languageTag: languageTag));
         }
+
+        [Test]
+        [TestCase(null)]
+        [TestCase("")]
+        public void TestNullOrEmptyInputCurrency(string input)
+        {
+            // Set the thread culture and test for backward compatibility
+            using (CultureHelper.SetCulture("en-US"))
+            {
+                Helper.AssertTemplateResult(
+                    expected: string.Empty,
+                    template: "{{ input | currency: 'de-DE' }}",
+                    localVariables: Hash.FromAnonymousObject(new { input = input }));
+            }
+
+            // _contextV20 is initialized with InvariantCulture
+            Assert.AreEqual(
+                expected: input,
+                actual: StandardFilters.Currency(context: _contextV20, input: input, languageTag: "de-DE"));
+        }        
 
         [Test]
         public void TestMalformedCurrency()
         {
-            Assert.AreEqual("teststring", StandardFilters.Currency("teststring", "de-DE"));
+            // Set the thread culture and test for backward compatibility
+            using (CultureHelper.SetCulture("en-US"))
+            {
+                Helper.AssertTemplateResult(
+                    expected: "teststring",
+                    template: "{{ 'teststring' | currency: 'de-DE' }}");
+            }
+
+            // _contextV20 is initialized with InvariantCulture
+            Assert.AreEqual("teststring", StandardFilters.Currency(context: _contextV20, input: "teststring", languageTag: "de-DE"));
         }
 
         [Test]
         public void TestCurrencyWithinTemplateRender()
         {
-#if CORE
-            CultureInfo.DefaultThreadCurrentCulture = new CultureInfo("en-US");
-#else
-            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
-#endif
+            using (CultureHelper.SetCulture("en-US"))
+            {
+                Template dollarTemplate = Template.Parse(@"{{ amount | currency }}");
+                Template euroTemplate = Template.Parse(@"{{ amount | currency: ""de-DE"" }}");
 
-            Template dollarTemplate = Template.Parse(@"{{ amount | currency }}");
-            Template euroTemplate = Template.Parse(@"{{ amount | currency: ""de-DE"" }}");
-
-            Assert.AreEqual("$7,000.00", dollarTemplate.Render(Hash.FromAnonymousObject(new { amount = "7000" })));
-            Assert.AreEqual("7.000,00 €", euroTemplate.Render(Hash.FromAnonymousObject(new { amount = 7000 })));
+                Assert.AreEqual("$7,000.00", dollarTemplate.Render(Hash.FromAnonymousObject(new { amount = "7000" })));
+                Assert.AreEqual("7.000,00 €", euroTemplate.Render(Hash.FromAnonymousObject(new { amount = 7000 })));
+            }
         }
 
         [Test]
         public void TestCurrencyFromDoubleInput()
         {
-            Assert.AreEqual("$6.85", StandardFilters.Currency(6.8458, "en-US"));
-            Assert.AreEqual("$6.72", StandardFilters.Currency(6.72, "en-CA"));
-            Assert.AreEqual("6.000.000,00 €", StandardFilters.Currency(6000000, "de-DE"));
-            Assert.AreEqual("6.000.000,78 €", StandardFilters.Currency(6000000.78, "de-DE"));
+            Assert.AreEqual("$6.85", StandardFilters.Currency(context: _contextV20, input: 6.8458, languageTag: "en-US"));
+            Assert.AreEqual("$6.72", StandardFilters.Currency(context: _contextV20, input: 6.72, languageTag: "en-CA"));
+            Assert.AreEqual("6.000.000,00 €", StandardFilters.Currency(context: _contextV20, input: 6000000, languageTag: "de-DE"));
+            Assert.AreEqual("6.000.000,78 €", StandardFilters.Currency(context: _contextV20, input: 6000000.78, languageTag: "de-DE"));
+        }
+
+        [Test]
+        public void TestCurrencyLanguageTag()
+        {
+            Assert.AreEqual("6.000.000,00 €", StandardFilters.Currency(context: _contextV20, input: 6000000, languageTag: "de-DE")); // language+country
+            Assert.AreEqual("6.000.000,00 €", StandardFilters.Currency(context: _contextV20, input: 6000000, languageTag: "de")); // language only
+            Assert.Throws<CultureNotFoundException>(() => StandardFilters.Currency(context: _contextV20, input: "teststring", languageTag: "german")); // invalid language
         }
 
         [Test]
@@ -643,8 +891,8 @@ namespace DotLiquid.Tests
 
         private void TestDate(Context context)
         {
-            Liquid.UseRubyDateFormat = false;
-            DateTimeFormatInfo dateTimeFormat = CultureInfo.CurrentCulture.DateTimeFormat;
+            context.UseRubyDateFormat = false;
+            DateTimeFormatInfo dateTimeFormat = context.CurrentCulture.DateTimeFormat;
 
             Assert.AreEqual(dateTimeFormat.GetMonthName(5), StandardFilters.Date(context: context, input: DateTime.Parse("2006-05-05 10:00:00"), format: "MMMM"));
             Assert.AreEqual(dateTimeFormat.GetMonthName(6), StandardFilters.Date(context: context, input: DateTime.Parse("2006-06-05 10:00:00"), format: "MMMM"));
@@ -656,8 +904,8 @@ namespace DotLiquid.Tests
 
             Assert.AreEqual("08/01/2006 10:00:00", StandardFilters.Date(context: context, input: "08/01/2006 10:00:00", format: string.Empty));
             Assert.AreEqual("08/02/2006 10:00:00", StandardFilters.Date(context: context, input: "08/02/2006 10:00:00", format: null));
-            Assert.AreEqual(new DateTime(2006, 8, 3, 10, 0, 0).ToString(), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 3, 10, 0, 0), format: string.Empty));
-            Assert.AreEqual(new DateTime(2006, 8, 4, 10, 0, 0).ToString(), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 4, 10, 0, 0), format: null));
+            Assert.AreEqual(new DateTime(2006, 8, 3, 10, 0, 0).ToString(context.CurrentCulture), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 3, 10, 0, 0), format: string.Empty));
+            Assert.AreEqual(new DateTime(2006, 8, 4, 10, 0, 0).ToString(context.CurrentCulture), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 4, 10, 0, 0), format: null));
 
             Assert.AreEqual(new DateTime(2006, 7, 5).ToString("MM/dd/yyyy"), StandardFilters.Date(context: context, input: "2006-07-05 10:00:00", format: "MM/dd/yyyy"));
 
@@ -693,7 +941,7 @@ namespace DotLiquid.Tests
                 Assert.AreEqual(new DateTimeOffset(testDate).ToString("zzz"), StandardFilters.Date(context: context, input: new DateTimeOffset(testDate, TimeSpan.FromHours(-14)), format: "zzz"));
 
                 // Legacy parser doesn't handle local offset & explicit offset in calculating epoch
-                Liquid.UseRubyDateFormat = true;
+                Liquid.UseRubyDateFormat = true; // ensure all Contexts created within tests are defaulted to Ruby date format
                 var unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).ToLocalTime();
                 var unixEpochOffset = new DateTimeOffset(unixEpoch).Offset.TotalSeconds;
                 Helper.AssertTemplateResult(expected: "0", template: "{{ epoch | date: '%s' }}", localVariables: Hash.FromAnonymousObject(new { epoch = unixEpoch.ToUniversalTime() }));
@@ -703,10 +951,10 @@ namespace DotLiquid.Tests
                 Helper.AssertTemplateResult(expected: unixEpochOffset.ToString(), template: "{{ epoch | date: '%s' }}", localVariables: Hash.FromAnonymousObject(new { epoch = new DateTimeOffset(unixEpoch).ToOffset(TimeSpan.FromHours(-14)) }));
 
                 // Legacy parser defaults to the .NET default format
-                Assert.AreEqual(DateTime.Now.ToString(), StandardFilters.Date(context: context, input: "now", format: null));
-                Assert.AreEqual(DateTime.Now.ToString(), StandardFilters.Date(context: context, input: "today", format: null));
-                Assert.AreEqual(DateTime.Now.ToString(), StandardFilters.Date(context: context, input: "now", format: string.Empty));
-                Assert.AreEqual(DateTime.Now.ToString(), StandardFilters.Date(context: context, input: "today", format: string.Empty));
+                Assert.AreEqual(DateTime.Now.ToString(context.CurrentCulture), StandardFilters.Date(context: context, input: "now", format: null));
+                Assert.AreEqual(DateTime.Now.ToString(context.CurrentCulture), StandardFilters.Date(context: context, input: "today", format: null));
+                Assert.AreEqual(DateTime.Now.ToString(context.CurrentCulture), StandardFilters.Date(context: context, input: "now", format: string.Empty));
+                Assert.AreEqual(DateTime.Now.ToString(context.CurrentCulture), StandardFilters.Date(context: context, input: "today", format: string.Empty));
             });
         }
 
@@ -715,11 +963,11 @@ namespace DotLiquid.Tests
         {
             Helper.LockTemplateStaticVars(Template.NamingConvention, () =>
             {
-                var context = _contextV21;
+                var context = _contextV21;// _contextV21 specifies InvariantCulture
                 var unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).ToLocalTime();
-                Assert.AreEqual(unixEpoch.ToString("g"), StandardFilters.Date(context: context, input: 0, format: "g"));
-                Assert.AreEqual(unixEpoch.AddSeconds(Int32.MaxValue).AddSeconds(1).ToString("g"), StandardFilters.Date(context: context, input: 2147483648, format: "g")); // Beyond Int32 boundary
-                Assert.AreEqual(unixEpoch.AddSeconds(UInt32.MaxValue).AddSeconds(1).ToString("g"), StandardFilters.Date(context: context, input: 4294967296, format: "g")); // Beyond UInt32 boundary
+                Assert.AreEqual(unixEpoch.ToString("g", context.FormatProvider), StandardFilters.Date(context: context, input: 0, format: "g"));
+                Assert.AreEqual(unixEpoch.AddSeconds(Int32.MaxValue).AddSeconds(1).ToString("g", context.FormatProvider), StandardFilters.Date(context: context, input: 2147483648, format: "g")); // Beyond Int32 boundary
+                Assert.AreEqual(unixEpoch.AddSeconds(UInt32.MaxValue).AddSeconds(1).ToString("g", context.FormatProvider), StandardFilters.Date(context: context, input: 4294967296, format: "g")); // Beyond UInt32 boundary
                 Helper.AssertTemplateResult(expected: unixEpoch.ToString("g"), template: "{{ 0 | date: 'g' }}", syntax: context.SyntaxCompatibilityLevel);
                 Helper.AssertTemplateResult(expected: unixEpoch.AddSeconds(Int32.MaxValue).AddSeconds(1).ToString("g"), template: "{{ 2147483648 | date: 'g' }}", syntax: context.SyntaxCompatibilityLevel);
                 Helper.AssertTemplateResult(expected: unixEpoch.AddSeconds(UInt32.MaxValue).AddSeconds(1).ToString("g"), template: "{{ 4294967296 | date: 'g' }}", syntax: context.SyntaxCompatibilityLevel);
@@ -736,7 +984,7 @@ namespace DotLiquid.Tests
                 Helper.AssertTemplateResult(expected: "2021-05-20T12:14:15+00:00", template: "{{ iso8601DateTime | date: 'yyyy-MM-ddThh:mm:sszzz' }}", localVariables: Hash.FromAnonymousObject(new { iso8601DateTime = "2021-05-20T12:14:15Z" }), syntax: context.SyntaxCompatibilityLevel);
                 Helper.AssertTemplateResult(expected: "2021-05-20T12:14:15", template: "{{ iso8601DateTime | date: 'yyyy-MM-ddThh:mm:ss' }}", localVariables: Hash.FromAnonymousObject(new { iso8601DateTime = "2021-05-20T12:14:15" }), syntax: context.SyntaxCompatibilityLevel);
 
-                Liquid.UseRubyDateFormat = true;
+                Liquid.UseRubyDateFormat = true; // ensure all Contexts created within tests are defaulted to Ruby date format
                 Helper.AssertTemplateResult(expected: "0", template: "{{ epoch | date: '%s' }}", localVariables: Hash.FromAnonymousObject(new { epoch = 0 }), syntax: context.SyntaxCompatibilityLevel);
                 Helper.AssertTemplateResult(expected: "2147483648", template: "{{ epoch | date: '%s' }}", localVariables: Hash.FromAnonymousObject(new { epoch = 2147483648 }), syntax: context.SyntaxCompatibilityLevel);
                 Helper.AssertTemplateResult(expected: "4294967296", template: "{{ epoch | date: '%s' }}", localVariables: Hash.FromAnonymousObject(new { epoch = 4294967296 }), syntax: context.SyntaxCompatibilityLevel);
@@ -761,21 +1009,21 @@ namespace DotLiquid.Tests
             Helper.LockTemplateStaticVars(Template.NamingConvention, () =>
             {
                 var context = _contextV20;
-                Liquid.UseRubyDateFormat = true;
-                DateTimeFormatInfo dateTimeFormat = CultureInfo.CurrentCulture.DateTimeFormat;
+                context.UseRubyDateFormat = true;
+                context.CurrentCulture = new CultureInfo("en-US"); // _contextV20 is initialized with InvariantCulture, these tests require en-US
 
-                Assert.AreEqual(dateTimeFormat.GetMonthName(5), StandardFilters.Date(context: context, input: DateTime.Parse("2006-05-05 10:00:00"), format: "%B"));
-                Assert.AreEqual(dateTimeFormat.GetMonthName(6), StandardFilters.Date(context: context, input: DateTime.Parse("2006-06-05 10:00:00"), format: "%B"));
-                Assert.AreEqual(dateTimeFormat.GetMonthName(7), StandardFilters.Date(context: context, input: DateTime.Parse("2006-07-05 10:00:00"), format: "%B"));
+                Assert.AreEqual("May", StandardFilters.Date(context: context, input: DateTime.Parse("2006-05-05 10:00:00"), format: "%B"));
+                Assert.AreEqual("June", StandardFilters.Date(context: context, input: DateTime.Parse("2006-06-05 10:00:00"), format: "%B"));
+                Assert.AreEqual("July", StandardFilters.Date(context: context, input: DateTime.Parse("2006-07-05 10:00:00"), format: "%B"));
 
-                Assert.AreEqual(dateTimeFormat.GetMonthName(5), StandardFilters.Date(context: context, input: "2006-05-05 10:00:00", format: "%B"));
-                Assert.AreEqual(dateTimeFormat.GetMonthName(6), StandardFilters.Date(context: context, input: "2006-06-05 10:00:00", format: "%B"));
-                Assert.AreEqual(dateTimeFormat.GetMonthName(7), StandardFilters.Date(context: context, input: "2006-07-05 10:00:00", format: "%B"));
+                Assert.AreEqual("May", StandardFilters.Date(context: context, input: "2006-05-05 10:00:00", format: "%B"));
+                Assert.AreEqual("June", StandardFilters.Date(context: context, input: "2006-06-05 10:00:00", format: "%B"));
+                Assert.AreEqual("July", StandardFilters.Date(context: context, input: "2006-07-05 10:00:00", format: "%B"));
 
                 Assert.AreEqual("05/07/2006 10:00:00", StandardFilters.Date(context: context, input: "05/07/2006 10:00:00", format: string.Empty));
                 Assert.AreEqual("05/07/2006 10:00:00", StandardFilters.Date(context: context, input: "05/07/2006 10:00:00", format: null));
-                Assert.AreEqual(new DateTime(2006, 8, 3, 10, 0, 0).ToString(), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 3, 10, 0, 0), format: string.Empty));
-                Assert.AreEqual(new DateTime(2006, 8, 4, 10, 0, 0).ToString(), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 4, 10, 0, 0), format: null));
+                Assert.AreEqual(new DateTime(2006, 8, 3, 10, 0, 0).ToString(context.FormatProvider), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 3, 10, 0, 0), format: string.Empty));
+                Assert.AreEqual(new DateTime(2006, 8, 4, 10, 0, 0).ToString(context.FormatProvider), StandardFilters.Date(context: context, input: new DateTime(2006, 8, 4, 10, 0, 0), format: null));
 
                 Assert.AreEqual("07/05/2006", StandardFilters.Date(context: context, input: "2006-07-05 10:00:00", format: "%m/%d/%Y"));
 
@@ -785,6 +1033,7 @@ namespace DotLiquid.Tests
 
                 Assert.AreEqual("hi", StandardFilters.Date(context: context, input: "hi", format: "%M"));
 
+                Liquid.UseRubyDateFormat = true; // ensure all Context objects created within tests are defaulted to Ruby date format
                 Template template = Template.Parse(@"{{ hi | date:""%M"" }}");
                 Assert.AreEqual("hi", template.Render(Hash.FromAnonymousObject(new { hi = "hi" })));
 
@@ -1135,8 +1384,8 @@ namespace DotLiquid.Tests
                 Helper.AssertTemplateResult("184", "{{ 183.357 | ceil }}");
                 Helper.AssertTemplateResult("4", "{{ \"3.5\" | ceil }}");
 
-                Assert.Null(StandardFilters.Ceil(""));
-                Assert.Null(StandardFilters.Ceil("two"));
+                Assert.Null(StandardFilters.Ceil(_contextV20, ""));
+                Assert.Null(StandardFilters.Ceil(_contextV20, "two"));
             }
         }
 
@@ -1150,8 +1399,8 @@ namespace DotLiquid.Tests
                 Helper.AssertTemplateResult("183", "{{ 183.357 | floor }}");
                 Helper.AssertTemplateResult("3", "{{ \"3.5\" | floor }}");
 
-                Assert.Null(StandardFilters.Floor(""));
-                Assert.Null(StandardFilters.Floor("two"));
+                Assert.Null(StandardFilters.Floor(_contextV20, ""));
+                Assert.Null(StandardFilters.Floor(_contextV20, "two"));
             }
         }
 
@@ -1402,15 +1651,15 @@ namespace DotLiquid.Tests
         [Test]
         public void TestAbs()
         {
-            Assert.AreEqual(0, StandardFilters.Abs("notNumber"));
-            Assert.AreEqual(10, StandardFilters.Abs(10));
-            Assert.AreEqual(5, StandardFilters.Abs(-5));
-            Assert.AreEqual(19.86, StandardFilters.Abs(19.86));
-            Assert.AreEqual(19.86, StandardFilters.Abs(-19.86));
-            Assert.AreEqual(10, StandardFilters.Abs("10"));
-            Assert.AreEqual(5, StandardFilters.Abs("-5"));
-            Assert.AreEqual(30.60, StandardFilters.Abs("30.60"));
-            Assert.AreEqual(0, StandardFilters.Abs("30.60a"));
+            Assert.AreEqual(0, StandardFilters.Abs(_contextV20, "notNumber"));
+            Assert.AreEqual(10, StandardFilters.Abs(_contextV20, 10));
+            Assert.AreEqual(5, StandardFilters.Abs(_contextV20, -5));
+            Assert.AreEqual(19.86, StandardFilters.Abs(_contextV20, 19.86));
+            Assert.AreEqual(19.86, StandardFilters.Abs(_contextV20, -19.86));
+            Assert.AreEqual(10, StandardFilters.Abs(_contextV20, "10"));
+            Assert.AreEqual(5, StandardFilters.Abs(_contextV20, "-5"));
+            Assert.AreEqual(30.60, StandardFilters.Abs(_contextV20, "30.60"));
+            Assert.AreEqual(0, StandardFilters.Abs(_contextV20, "30.60a"));
 
             Helper.AssertTemplateResult(
                 expected: "17",
@@ -1429,17 +1678,17 @@ namespace DotLiquid.Tests
         [Test]
         public void TestAtLeast()
         {
-            Assert.AreEqual("notNumber", StandardFilters.AtLeast("notNumber", 5));
-            Assert.AreEqual(5, StandardFilters.AtLeast(5, 5));
-            Assert.AreEqual(5, StandardFilters.AtLeast(3, 5));
-            Assert.AreEqual(6, StandardFilters.AtLeast(6, 5));
-            Assert.AreEqual(10, StandardFilters.AtLeast(10, 5));
-            Assert.AreEqual(9.85, StandardFilters.AtLeast(9.85, 5));
-            Assert.AreEqual(5, StandardFilters.AtLeast(3.56, 5));
-            Assert.AreEqual(10, StandardFilters.AtLeast("10", 5));
-            Assert.AreEqual(5, StandardFilters.AtLeast("4", 5));
-            Assert.AreEqual("10a", StandardFilters.AtLeast("10a", 5));
-            Assert.AreEqual("4b", StandardFilters.AtLeast("4b", 5));
+            Assert.AreEqual("notNumber", StandardFilters.AtLeast(_contextV20, "notNumber", 5));
+            Assert.AreEqual(5, StandardFilters.AtLeast(_contextV20, 5, 5));
+            Assert.AreEqual(5, StandardFilters.AtLeast(_contextV20, 3, 5));
+            Assert.AreEqual(6, StandardFilters.AtLeast(_contextV20, 6, 5));
+            Assert.AreEqual(10, StandardFilters.AtLeast(_contextV20, 10, 5));
+            Assert.AreEqual(9.85, StandardFilters.AtLeast(_contextV20, 9.85, 5));
+            Assert.AreEqual(5, StandardFilters.AtLeast(_contextV20, 3.56, 5));
+            Assert.AreEqual(10, StandardFilters.AtLeast(_contextV20, "10", 5));
+            Assert.AreEqual(5, StandardFilters.AtLeast(_contextV20, "4", 5));
+            Assert.AreEqual("10a", StandardFilters.AtLeast(_contextV20, "10a", 5));
+            Assert.AreEqual("4b", StandardFilters.AtLeast(_contextV20, "4b", 5));
 
             Helper.AssertTemplateResult(
                 expected: "5",
@@ -1452,17 +1701,17 @@ namespace DotLiquid.Tests
         [Test]
         public void TestAtMost()
         {
-            Assert.AreEqual("notNumber", StandardFilters.AtMost("notNumber", 5));
-            Assert.AreEqual(5, StandardFilters.AtMost(5, 5));
-            Assert.AreEqual(3, StandardFilters.AtMost(3, 5));
-            Assert.AreEqual(5, StandardFilters.AtMost(6, 5));
-            Assert.AreEqual(5, StandardFilters.AtMost(10, 5));
-            Assert.AreEqual(5, StandardFilters.AtMost(9.85, 5));
-            Assert.AreEqual(3.56, StandardFilters.AtMost(3.56, 5));
-            Assert.AreEqual(5, StandardFilters.AtMost("10", 5));
-            Assert.AreEqual(4, StandardFilters.AtMost("4", 5));
-            Assert.AreEqual("4a", StandardFilters.AtMost("4a", 5));
-            Assert.AreEqual("10b", StandardFilters.AtMost("10b", 5));
+            Assert.AreEqual("notNumber", StandardFilters.AtMost(_contextV20, "notNumber", 5));
+            Assert.AreEqual(5, StandardFilters.AtMost(_contextV20, 5, 5));
+            Assert.AreEqual(3, StandardFilters.AtMost(_contextV20, 3, 5));
+            Assert.AreEqual(5, StandardFilters.AtMost(_contextV20, 6, 5));
+            Assert.AreEqual(5, StandardFilters.AtMost(_contextV20, 10, 5));
+            Assert.AreEqual(5, StandardFilters.AtMost(_contextV20, 9.85, 5));
+            Assert.AreEqual(3.56, StandardFilters.AtMost(_contextV20, 3.56, 5));
+            Assert.AreEqual(5, StandardFilters.AtMost(_contextV20, "10", 5));
+            Assert.AreEqual(4, StandardFilters.AtMost(_contextV20, "4", 5));
+            Assert.AreEqual("4a", StandardFilters.AtMost(_contextV20, "4a", 5));
+            Assert.AreEqual("10b", StandardFilters.AtMost(_contextV20, "10b", 5));
 
             Helper.AssertTemplateResult(
                 expected: "4",
@@ -1557,7 +1806,7 @@ namespace DotLiquid.Tests
             CollectionAssert.AreEqual(expected: products,
                 actual: StandardFilters.Where(products, propertyName: "type"));
 
-            // Test filtering for non-existant property
+            // Test filtering for non-existent property
             var emptyArray = Array.Empty<object>();
             CollectionAssert.AreEqual(expected: emptyArray,
                 actual: StandardFilters.Where(products, propertyName: "non_existent_property"));
@@ -1576,6 +1825,48 @@ namespace DotLiquid.Tests
                 new { title = "Garlic press", type = "kitchen" }
             };
             Assert.AreEqual(expected: expectedKitchenProducts, actual: StandardFilters.Where(productsWithNullEntry, propertyName: "type", targetValue: "kitchen"));
+        }
+
+        [Test]
+        public void TestWhere_Indexable()
+        {
+            var products = new [] {
+                new ProductDrop { Title = "Vacuum", Type = "cleaning" },
+                new ProductDrop { Title = "Spatula", Type = "kitchen" },
+                new ProductDrop { Title = "Television", Type = "lounge" },
+                new ProductDrop { Title = "Garlic press", Type = "kitchen" }
+            };
+            var expectedProducts = products.Where(p => p.Type == "kitchen").ToArray();
+
+            Helper.LockTemplateStaticVars(new RubyNamingConvention(), () =>
+            {
+                CollectionAssert.AreEqual(
+                    expected: expectedProducts,
+                    actual: StandardFilters.Where(products, propertyName: "type", targetValue: "kitchen"));
+            });
+        }
+
+        [Test]
+        public void TestWhere_ExpandoObject()
+        {
+            dynamic product1 = new ExpandoObject();
+            product1.title = "Vacuum";
+            product1.type = "cleaning";
+            dynamic product2 = new ExpandoObject();
+            product2.title = "Spatula";
+            product2.type = "kitchen";
+            dynamic product3 = new ExpandoObject();
+            product3.title = "Television";
+            product3.type = "lounge";
+            dynamic product4 = new ExpandoObject();
+            product4.title = "Garlic press";
+            product4.type = "kitchen";
+            var products = new List<ExpandoObject> { product1, product2, product3, product4 };
+            var expectedProducts = new List<ExpandoObject> { product2, product4 };
+
+            Assert.AreEqual(
+                expected: expectedProducts,
+                actual: StandardFilters.Where(products, propertyName: "type", targetValue: "kitchen"));
         }
 
         // First sample from specification at https://shopify.github.io/liquid/filters/where/
@@ -1693,6 +1984,25 @@ Cheapest products:
         }
 
         [Test]
+        public void TestWhere_RespectIndexable()
+        {
+            var products = new [] {
+                new ProductDrop { Title = "Vacuum", Type = "cleaning" },
+                new ProductDrop { Title = "Spatula", Type = "kitchen" },
+                new ProductDrop { Title = "Television", Type = "lounge" },
+                new ProductDrop { Title = "Garlic press", Type = "kitchen" }
+            };
+            var expectedKitchenProducts = products.Where(p => p.Type == "kitchen").ToArray();
+
+            Helper.LockTemplateStaticVars(new RubyNamingConvention(), () =>
+            {
+                CollectionAssert.AreEqual(
+                    expected: expectedKitchenProducts,
+                    actual: StandardFilters.Where(products, propertyName: "type", targetValue: "kitchen"));
+            });
+        }
+
+        [Test]
         public void TestConcat()
         {
             var array1 = new String[] { "one", "two" };
@@ -1767,6 +2077,12 @@ Cheapest products:
             Helper.AssertTemplateResult(
                 expected: ".moT rojaM ot lortnoc dnuorG",
                 template: "{{ 'Ground control to Major Tom.' | split: '' | reverse | join: '' }}");
+        }
+
+        private class ProductDrop : Drop
+        {
+            public string Title { get; set; }
+            public string Type { get; set; }
         }
     }
 }

@@ -33,6 +33,32 @@ namespace DotLiquid
         /// </summary>
         public SyntaxCompatibility SyntaxCompatibilityLevel { get; set; }
 
+        /// <summary>
+        /// Ruby Date Format flag, switches Date filter syntax between Ruby and CSharp formats.
+        /// </summary>
+        public bool UseRubyDateFormat { get; set; }
+
+        /// <summary>
+        /// Returns the CurrentCulture specified for this Context.
+        /// </summary>
+        /// <remarks>
+        /// **WARNING**: If the context was created with an IFormatProvider that is not also
+        /// a CultureInfo it is replaced with the current threads CurrentCulture.
+        /// </remarks>
+        public CultureInfo CurrentCulture
+        {
+            get
+            {
+                return this.FormatProvider is CultureInfo cultureInfo
+                    ? cultureInfo
+                    : CultureInfo.CurrentCulture;
+            }
+            set
+            {
+                this.FormatProvider = value;
+            }
+        }
+
         private readonly int _maxIterations;
 
         public int MaxIterations
@@ -71,7 +97,7 @@ namespace DotLiquid
         /// <param name="errorsOutputMode"></param>
         /// <param name="maxIterations"></param>
         /// <param name="timeout"></param>
-        /// <param name="formatProvider"></param>
+        /// <param name="formatProvider">A CultureInfo instance that will be used to parse filter input and format filter output</param>
         [Obsolete("The method with timeout argument is deprecated. Please use the one with CancellationToken.")]
         public Context
             (List<Hash> environments
@@ -95,7 +121,7 @@ namespace DotLiquid
         /// <param name="registers"></param>
         /// <param name="errorsOutputMode"></param>
         /// <param name="maxIterations"></param>
-        /// <param name="formatProvider"></param>
+        /// <param name="formatProvider">A CultureInfo instance that will be used to parse filter input and format filter output</param>
         /// <param name="cancellationToken"></param>
         public Context
             (List<Hash> environments
@@ -120,6 +146,7 @@ namespace DotLiquid
             _cancellationToken = cancellationToken;
             FormatProvider = formatProvider;
             SyntaxCompatibilityLevel = Template.DefaultSyntaxCompatibilityLevel;
+            UseRubyDateFormat = Liquid.UseRubyDateFormat;
 
             SquashInstanceAssignsWithEnvironments();
         }
@@ -127,6 +154,7 @@ namespace DotLiquid
         /// <summary>
         /// Creates a new rendering context
         /// </summary>
+        /// <param name="formatProvider">A CultureInfo instance that will be used to parse filter input and format filter output</param>
         public Context(IFormatProvider formatProvider)
             : this(new List<Hash>(), new Hash(), new Hash(), ErrorsOutputMode.Display, 0, 0, formatProvider)
         {
@@ -360,9 +388,21 @@ namespace DotLiquid
                     return true;
                 case "false":
                     return false;
-                case "blank":
-                case "empty":
-                    return new Symbol(o => (o is IEnumerable enumerableO) && !enumerableO.Cast<object>().Any());
+                case "blank": // Liquid doesn't define this behavior but calls a Ruby on Rails defined extension method identically named
+                    return new Symbol(obj => {
+                        switch (obj)
+                        {
+                            case null:
+                            case bool boolObj when boolObj == false:
+                            case string stringObj when string.IsNullOrWhiteSpace(stringObj):
+                            case IEnumerable enumerableObj when !enumerableObj.Any():
+                                return true;
+                            default:
+                                return false;
+                        }
+                    });
+                case "empty": // Also defined by Ruby on Rails
+                    return new Symbol(o => (o is IEnumerable enumerableObj) && !enumerableObj.Any());
             }
 
             var firstChar = key[0];
@@ -429,7 +469,7 @@ namespace DotLiquid
             return Variable(key, notifyNotFound);
         }
 
-        public IFormatProvider FormatProvider { get; }
+        public IFormatProvider FormatProvider { get; private set; }
 
         /// <summary>
         /// Fetches an object starting at the local scope and then moving up
@@ -593,8 +633,12 @@ namespace DotLiquid
             else if (obj is IDictionary<string, object> dictionaryObject && dictionaryObject.ContainsKey(key.ToString()))
                 value = dictionaryObject[key.ToString()];
 
-            else if ((obj is IList listObj) && (key is int || key is long))
-                value = listObj[Convert.ToInt32(key)];
+            else if ((obj is IList listObj) && (key is int || key is uint || key is long || key is ulong || key is short || key is ushort || key is byte || key is sbyte
+                || (key is decimal dec && Math.Truncate(dec) == dec) || (key is double dbl && Math.Truncate(dbl) == dbl) || (key is float flt && Math.Truncate(flt) == flt)))
+            {
+                var index = Convert.ToInt32(key);
+                value = listObj[index < 0 ? listObj.Count + index : index];
+            }
 
             else if (TypeUtility.IsAnonymousType(obj.GetType()) && obj.GetType().GetRuntimeProperty((string)key) != null)
                 value = obj.GetType().GetRuntimeProperty((string)key).GetValue(obj, null);

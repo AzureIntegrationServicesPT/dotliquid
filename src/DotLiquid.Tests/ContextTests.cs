@@ -538,6 +538,9 @@ namespace DotLiquid.Tests
 
             Assert.AreEqual(5, _context["products[\"count\"]"]);
             Assert.AreEqual("deepsnow", _context["products['tags'][0]"]);
+            Assert.AreEqual("freestyle", _context["products['tags'][1]"]);
+            Assert.AreEqual("freestyle", _context["products['tags'][-1]"]);
+            Assert.AreEqual("deepsnow", _context["products['tags'][-2]"]);
             Assert.AreEqual("deepsnow", _context["products['tags'].first"]);
             Assert.AreEqual("freestyle", _context["products['tags'].last"]);
             Assert.AreEqual(2, _context["products['tags'].size"]);
@@ -863,6 +866,38 @@ namespace DotLiquid.Tests
             Assert.AreEqual(expected: "State Is:Texas", actual: Template.Parse(template).Render(modelHash));
         }
 
+        /// <summary>
+        /// Test case for [Issue #474](https://github.com/dotliquid/dotliquid/issues/474)
+        /// </summary>
+        [Test]
+        public void TestDecimalIndexer_Issue474()
+        {
+            var template = @"{% assign idx = fraction | minus: 0.01 -%}
+{{ arr[0] }}
+{{ arr[idx] }}";
+
+            var modelHash = Hash.FromAnonymousObject(new { arr = new[] { "Zero", "One" }, fraction = 0.01 });
+            Assert.AreEqual(expected: "Zero\r\nZero", actual: Template.Parse(template).Render(modelHash));
+        }
+
+        /// <summary>
+        /// Test case for [Issue #474](https://github.com/dotliquid/dotliquid/issues/474)
+        /// </summary>
+        [Test]
+        public void TestAllTypesIndexer_Issue474()
+        {
+            var zero = 0;
+            var typesToTest = Util.ExpressionUtilityTest.GetNumericCombinations().Select(item => item.Item1).Distinct().ToList();
+            var arrayOfZeroTypes = typesToTest.Select(type => Convert.ChangeType(zero, type)).ToList();
+
+            var template = @"{% for idx in numerics -%}
+{{ arr[idx] }}
+{% endfor %}";
+
+            var modelHash = Hash.FromAnonymousObject(new { arr = new[] { "Zero", "One" }, numerics = arrayOfZeroTypes });
+            Assert.AreEqual(expected: string.Join(String.Empty, Enumerable.Repeat("Zero\r\n", arrayOfZeroTypes.Count)), actual: Template.Parse(template).Render(modelHash));
+        }
+
         [Test]
         public void TestProcAsVariable()
         {
@@ -992,6 +1027,32 @@ namespace DotLiquid.Tests
             using (var enumerator = Tokenizer.GetVariableEnumerator(input))
                 while (enumerator.MoveNext())
                     yield return enumerator.Current;
+        }
+
+        [Test]
+        public void TestConstructor()
+        {
+            var context = new Context(new CultureInfo("jp-JP"));
+            Assert.AreEqual(Template.DefaultSyntaxCompatibilityLevel, context.SyntaxCompatibilityLevel);
+            Assert.AreEqual(Liquid.UseRubyDateFormat, context.UseRubyDateFormat);
+            Assert.AreEqual("jp-JP", context.CurrentCulture.Name);
+        }
+
+        /// <summary>
+        /// The expectation is that a Context is created with a CultureInfo, however,
+        /// the parameter is defined as an IFormatProvider so this is not enforced by
+        /// the compiler.
+        /// </summary>
+        /// <remarks>
+        /// This test verifies that a CultureInfo is returned by Context.CultureInfo even
+        /// if Context was created with a non-CultureInfo
+        /// </remarks>
+        [Test]
+        public void TestCurrentCulture_NotACultureInfo()
+        {
+            // Create context with an IFormatProvider that is not a CultureInfo
+            Context context = new Context(CultureInfo.CurrentCulture.NumberFormat);
+            Assert.AreSame(CultureInfo.CurrentCulture, context.CurrentCulture);
         }
     }
 }

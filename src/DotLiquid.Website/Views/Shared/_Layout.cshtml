@@ -67,7 +67,9 @@
                 <ul>
                     <li><a href="http://timjones.io">Tim Jones</a></li>
                 </ul>
-                @await Component.InvokeAsync("Contributors")
+                <cache>
+                    @await Component.InvokeAsync("Contributors")
+                </cache>
             </div>
             <div class="footer-col">
                 <h5>Documentation</h5>
@@ -101,7 +103,7 @@
             </div>
         </div>
         <div id="copyright">
-            Copyright ©2010-@(DateTime.Now.Year) <a href="http://formosatek.com">Formosatek</a> and contributors - All rights reserved.
+            Copyright ©2010-@(DateTime.Now.Year) Formosatek and contributors - All rights reserved.
             Site design by <a href="http://www.alessandropetrelli.com">Alessandro Petrelli</a>.
             Hosted free by <a href="http://appharbor.com">AppHarbor</a>.
         </div>

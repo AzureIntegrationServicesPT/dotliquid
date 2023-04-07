@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using System.Globalization;
 
 namespace DotLiquid
 {
@@ -21,7 +20,7 @@ namespace DotLiquid
 #if CORE
                 : Regex.Replace(input, @"\b(\w)", m => m.Value.ToUpper(), RegexOptions.None, Template.RegexTimeOut);
 #else
-                : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(input);
+                : context.CurrentCulture.TextInfo.ToTitleCase(input);
 #endif
         }
 
@@ -38,6 +37,17 @@ namespace DotLiquid
 
             var trimmed = input.TrimStart();
             return input.Substring(0, input.Length - trimmed.Length) + char.ToUpper(trimmed[0]) + trimmed.Substring(1);
+        }
+
+        /// <summary>
+        /// Replaces all strings that match a specified regular expression with a specified replacement string.
+        /// </summary>
+        /// <param name="input">Input to be transformed by this filter</param>
+        /// <param name="pattern">The regular expression pattern to match.</param>
+        /// <param name="replacement">The replacement string</param>
+        public static string RegexReplace(string input, string pattern, string replacement = "")
+        {
+            return Regex.Replace(input: input, pattern: pattern, replacement: replacement, options: RegexOptions.None, matchTimeout: Template.RegexTimeOut);
         }
     }
 }
